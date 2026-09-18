@@ -6323,5 +6323,43 @@ renderHome=function(){
 };
 </script>
 
+<script id="v31-delivery-room-sync-js">
+/* Completing a delivery previously only flipped deliveries.status — the
+   rooms it covers never heard about it, so every item still had to be
+   ticked Delivered by hand before "Mark Ready for Install" would unlock.
+   This syncs the two: completing a delivery marks every item in its rooms
+   Delivered, matched by room_number against the current project's rooms. */
+function v31ResolveDeliveryRoomIds(roomNumbers){
+  const all=v21ProjectRooms();
+  const found=[],missing=[];
+  (roomNumbers||[]).forEach(n=>{
+    const r=all.find(x=>x.room_number===n);
+    if(r)found.push(r.id);else missing.push(n);
+  });
+  return {found,missing};
+}
+async function v31MarkDeliveryRoomsDelivered(roomNumbers){
+  const {found,missing}=v31ResolveDeliveryRoomIds(roomNumbers);
+  if(!found.length)return;
+  const {error}=await sb.from('room_items').update({
+    delivered_status:'delivered',updated_at:new Date().toISOString(),
+    updated_by:currentUser.id,updated_by_name:friendlyUserName()
+  }).in('room_id',found);
+  if(error){alert(error.message);return}
+  await loadSharedData();
+  showSaveToast(missing.length
+    ? `Delivered rooms updated — ready to release for install. Skipped ${missing.length} room number${missing.length===1?'':'s'} not found on this project: ${escapeHtml(missing.join(', '))}.`
+    : 'All items in these rooms are marked Delivered — ready to release for install from each room.'
+  );
+}
+const v31QuickDeliveryStatusBase=quickDeliveryStatus;
+quickDeliveryStatus=async function(id,status){
+  const rooms=deliveries.find(x=>x.id===id)?.rooms||[];
+  await v31QuickDeliveryStatusBase(id,status);
+  const ok=deliveries.find(x=>x.id===id)?.status===status;
+  if(ok&&status==='complete'&&rooms.length)await v31MarkDeliveryRoomsDelivered(rooms);
+};
+</script>
+
 </body>
 </html>
